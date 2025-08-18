@@ -16,7 +16,7 @@ res = hg.PipelineResources()
 
 -- load scene
 scene = hg.Scene()
-hg.LoadSceneFromAssets("car_engine/engine.scn", scene, res, hg.GetForwardPipelineInfo())
+hg.LoadSceneFromAssets("main.scn", scene, res, hg.GetForwardPipelineInfo())
 
 -- AAA pipeline
 pipeline_aaa_config = hg.ForwardPipelineAAAConfig()

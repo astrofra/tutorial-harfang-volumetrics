@@ -203,7 +203,7 @@
 			],
 			"disabled": false,
 			"idx": 0,
-			"name": "Cylinder001"
+			"name": "cylinder"
 		},
 		{
 			"components": [

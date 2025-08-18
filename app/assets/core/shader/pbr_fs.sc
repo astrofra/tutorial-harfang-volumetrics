@@ -3,34 +3,16 @@ $input vWorldPos, vNormal, vTangent, vBinormal, vTexCoord0, vTexCoord1, vLinearS
 // HARFANG(R) Copyright (C) 2022 Emmanuel Julien, NWNC HARFANG. Released under GPL/LGPL/Commercial Licence, see licence.txt for details.
 #include <forward_pipeline.sh>
 
-// uAmbientColor.xyz, xyzw = greyscale, hilight, fade
-
-vec3 Greyscale(vec3 col, float amount) {
-	float luma = col.x * 0.2126 + col.y * 0.7152 + col.z * 0.0722;
-	return mix(col, vec3(luma, luma, luma), amount);
-}
-
-float Compress(float x, float amount) {
-    float centered = x - 0.5;
-    return 0.5 + centered * pow(2.0 * abs(centered), amount);
-}
-
 // Surface attributes
 uniform vec4 uBaseOpacityColor;
 uniform vec4 uOcclusionRoughnessMetalnessColor;
 uniform vec4 uSelfColor;
-uniform vec4 uORMPow;
 
 // Texture slots
 SAMPLER2D(uBaseOpacityMap, 0);
 SAMPLER2D(uOcclusionRoughnessMetalnessMap, 1);
 SAMPLER2D(uNormalMap, 2);
 SAMPLER2D(uSelfMap, 4);
-
-float map(float value, float min1, float max1, float min2, float max2) {
-  return min2 + (value - min1) * (max2 - min2) / (max1 - min1);
-}
-
 
 //
 float LightAttenuation(vec3 L, vec3 D, float dist, float attn, float inner_rim, float outer_rim) {
@@ -50,30 +32,33 @@ float SampleHardShadow(sampler2DShadow map, vec4 coord, float bias) {
 	return shadow2D(map, vec3(uv.xy, uv.z - bias));
 }
 
-float SampleShadowPCF(sampler2DShadow map, vec4 coord, float inv_pixel_size, float bias, vec4 jitter, float shadow_radius) {
+float SampleShadowPCF(sampler2DShadow map, vec4 coord, float inv_pixel_size, float bias, vec4 jitter) {
 	float k_pixel_size = inv_pixel_size * coord.w;
 
 	float k = 0.0;
-	// #define PCF_W 2.0
 
-	// // 2x2
-	// k += SampleHardShadow(map, coord + vec4(vec2(-shadow_radius, -shadow_radius) * k_pixel_size, 0.0, 0.0), bias);
-	// k += SampleHardShadow(map, coord + vec4(vec2( shadow_radius, -shadow_radius) * k_pixel_size, 0.0, 0.0), bias);
-	// k += SampleHardShadow(map, coord + vec4(vec2(-shadow_radius,  shadow_radius) * k_pixel_size, 0.0, 0.0), bias);
-	// k += SampleHardShadow(map, coord + vec4(vec2( shadow_radius,  shadow_radius) * k_pixel_size, 0.0, 0.0), bias);
+#if FORWARD_PIPELINE_AAA
+	#define PCF_SAMPLE_COUNT 2 // 3x3
 
-	// k /= 4.0;
-	k += SampleHardShadow(map, coord + vec4(vec2(-shadow_radius, 0.0) * k_pixel_size, 0.0, 0.0), bias);
-	k += SampleHardShadow(map, coord + vec4(vec2( shadow_radius, 0.0) * k_pixel_size, 0.0, 0.0), bias);
-	k += SampleHardShadow(map, coord + vec4(vec2(0.0, -shadow_radius) * k_pixel_size, 0.0, 0.0), bias);
-	k += SampleHardShadow(map, coord + vec4(vec2(0.0,  shadow_radius) * k_pixel_size, 0.0, 0.0), bias);
+//	ARRAY_BEGIN(float, weights, 9) 0.024879, 0.107973, 0.024879, 0.107973, 0.468592, 0.107973, 0.024879, 0.107973, 0.024879 ARRAY_END();
+	ARRAY_BEGIN(float, weights, 9) 0.011147, 0.083286, 0.011147, 0.083286, 0.622269, 0.083286, 0.011147, 0.083286, 0.011147 ARRAY_END();
 
-	k += SampleHardShadow(map, coord + vec4(vec2(-shadow_radius, -shadow_radius) * k_pixel_size, 0.0, 0.0), bias);
-	k += SampleHardShadow(map, coord + vec4(vec2( shadow_radius, -shadow_radius) * k_pixel_size, 0.0, 0.0), bias);
-	k += SampleHardShadow(map, coord + vec4(vec2(-shadow_radius,  shadow_radius) * k_pixel_size, 0.0, 0.0), bias);
-	k += SampleHardShadow(map, coord + vec4(vec2( shadow_radius,  shadow_radius) * k_pixel_size, 0.0, 0.0), bias);
+	for (int j = 0; j <= PCF_SAMPLE_COUNT; ++j) {
+		float v = 6.0 * (float(j) + jitter.y) / float(PCF_SAMPLE_COUNT) - 1.0;
+		for (int i = 0; i <= PCF_SAMPLE_COUNT; ++i) {
+			float u = 6.0 * (float(i) + jitter.x) / float(PCF_SAMPLE_COUNT) - 1.0;
+			k += SampleHardShadow(map, coord + vec4(vec2(u, v) * k_pixel_size, 0.0, 0.0), bias) * weights[j * 3 + i];
+		}
+	}
+#else // FORWARD_PIPELINE_AAA
+	// 2x2
+	k += SampleHardShadow(map, coord + vec4(vec2(-0.5, -0.5) * k_pixel_size, 0.0, 0.0), bias);
+	k += SampleHardShadow(map, coord + vec4(vec2( 0.5, -0.5) * k_pixel_size, 0.0, 0.0), bias);
+	k += SampleHardShadow(map, coord + vec4(vec2(-0.5,  0.5) * k_pixel_size, 0.0, 0.0), bias);
+	k += SampleHardShadow(map, coord + vec4(vec2( 0.5,  0.5) * k_pixel_size, 0.0, 0.0), bias);
 
-	k /= 8.0;
+	k /= 4.0;
+#endif // FORWARD_PIPELINE_AAA
 
 	return k;
 }
@@ -153,10 +138,6 @@ void main() {
 	vec4 occ_rough_metal = uOcclusionRoughnessMetalnessColor;
 #endif // USE_OCCLUSION_ROUGHNESS_METALNESS_MAP
 
-occ_rough_metal.x = pow(occ_rough_metal.x, uORMPow.x);
-occ_rough_metal.y = pow(occ_rough_metal.y, uORMPow.y);
-occ_rough_metal.z = pow(occ_rough_metal.z, uORMPow.z);
-
 	//
 #if USE_SELF_MAP
 	vec4 self = texture2D(uSelfMap, vTexCoord0);
@@ -176,7 +157,7 @@ occ_rough_metal.z = pow(occ_rough_metal.z, uORMPow.z);
 
 	mat3 TBN = mtxFromRows(T, B, N);
 
-	N.xy = (texture2D(uNormalMap, vTexCoord0).xy * 2.0 - 1.0) * uORMPow.w;
+	N.xy = texture2D(uNormalMap, vTexCoord0).xy * 2.0 - 1.0;
 	N.z = sqrt(1.0 - dot(N.xy, N.xy));
 	N = normalize(mul(N, TBN));
 #endif // USE_NORMAL_MAP
@@ -204,16 +185,16 @@ occ_rough_metal.z = pow(occ_rough_metal.z, uORMPow.z);
 		float k_fade_split = 1.0 - jitter.z * 0.3;
 
 		if(view.z < uLinearShadowSlice.x * k_fade_split) {
-			k_shadow *= SampleShadowPCF(uLinearShadowMap, vLinearShadowCoord0, uShadowState.y * 0.5, uShadowState.z, jitter, 2.0);
+			k_shadow *= SampleShadowPCF(uLinearShadowMap, vLinearShadowCoord0, uShadowState.y * 0.5, uShadowState.z, jitter);
 		} else if(view.z < uLinearShadowSlice.y * k_fade_split) {
-			k_shadow *= SampleShadowPCF(uLinearShadowMap, vLinearShadowCoord1, uShadowState.y * 0.5, uShadowState.z, jitter, 2.0);
+			k_shadow *= SampleShadowPCF(uLinearShadowMap, vLinearShadowCoord1, uShadowState.y * 0.5, uShadowState.z, jitter);
 		} else if(view.z < uLinearShadowSlice.z * k_fade_split) {
-			k_shadow *= SampleShadowPCF(uLinearShadowMap, vLinearShadowCoord2, uShadowState.y * 0.5, uShadowState.z, jitter, 2.0);
+			k_shadow *= SampleShadowPCF(uLinearShadowMap, vLinearShadowCoord2, uShadowState.y * 0.5, uShadowState.z, jitter);
 		} else if(view.z < uLinearShadowSlice.w * k_fade_split) {
 #if FORWARD_PIPELINE_AAA
-			k_shadow *= SampleShadowPCF(uLinearShadowMap, vLinearShadowCoord3, uShadowState.y * 0.5, uShadowState.z, jitter, 2.0);
+			k_shadow *= SampleShadowPCF(uLinearShadowMap, vLinearShadowCoord3, uShadowState.y * 0.5, uShadowState.z, jitter);
 #else // FORWARD_PIPELINE_AAA
-			float pcf = SampleShadowPCF(uLinearShadowMap, vLinearShadowCoord3, uShadowState.y * 0.5, uShadowState.z, jitter, 2.0);
+			float pcf = SampleShadowPCF(uLinearShadowMap, vLinearShadowCoord3, uShadowState.y * 0.5, uShadowState.z, jitter);
 			float ramp_len = (uLinearShadowSlice.w - uLinearShadowSlice.z) * 0.25;
 			float ramp_k = clamp((view.z - (uLinearShadowSlice.w - ramp_len)) / max(ramp_len, 1e-8), 0.0, 1.0);
 			k_shadow *= pcf * (1.0 - ramp_k) + ramp_k; 
@@ -230,8 +211,7 @@ occ_rough_metal.z = pow(occ_rough_metal.z, uORMPow.z);
 		float attenuation = LightAttenuation(L, uLightDir[1].xyz, distance, uLightPos[1].w, uLightDir[1].w, uLightDiffuse[1].w);
 
 #if SLOT1_SHADOWS
-		float shadow_radius = 2.0 + length(vWorldPos.xz) * 4.0; // Fake area shadows
-		attenuation *=SampleShadowPCF(uSpotShadowMap, vSpotShadowCoord, uShadowState.y, uShadowState.w, jitter, shadow_radius);
+		attenuation *=SampleShadowPCF(uSpotShadowMap, vSpotShadowCoord, uShadowState.y, uShadowState.w, jitter);
 #endif // SLOT1_SHADOWS
 		color += GGX(V, N, NdotV, L, base_opacity.xyz, occ_rough_metal.g, occ_rough_metal.b, F0, uLightDiffuse[1].xyz * attenuation, uLightSpecular[1].xyz * attenuation);
 	}
@@ -259,17 +239,14 @@ occ_rough_metal.z = pow(occ_rough_metal.z, uORMPow.z);
 	float lod_level = log2(dd);
 #endif
 
-	float fake_horizon_based_boost = pow(clamp(map(vWorldPos.y, 0.0, 0.25, 0.0, 1.0), 0.2, 1.0), 0.5);
-	// vec3 fake_horizon_based_boost_vec = vec3_splat(fake_horizon_based_boost);
-
-	vec3 irradiance = textureCube(uIrradianceMap, ReprojectProbe(P, N)).xyz * fake_horizon_based_boost;
+	vec3 irradiance = textureCube(uIrradianceMap, ReprojectProbe(P, N)).xyz;
 	vec3 radiance = textureCubeLod(uRadianceMap, ReprojectProbe(P, R), occ_rough_metal.y * MAX_REFLECTION_LOD).xyz;
 
 #if FORWARD_PIPELINE_AAA
 	vec4 ss_irradiance = texture2D(uSSIrradianceMap, gl_FragCoord.xy / uResolution.xy);
 	vec4 ss_radiance = texture2D(uSSRadianceMap, gl_FragCoord.xy / uResolution.xy);
 
-	irradiance = ss_irradiance.xyz * fake_horizon_based_boost; // mix(irradiance, ss_irradiance, ss_irradiance.w);
+	irradiance = ss_irradiance.xyz; // mix(irradiance, ss_irradiance, ss_irradiance.w);
 	radiance = mix(radiance, ss_radiance.xyz, ss_radiance.w);
 #endif
 
@@ -287,12 +264,11 @@ occ_rough_metal.z = pow(occ_rough_metal.z, uORMPow.z);
 
 	color += kD * diffuse;
 	color += specular;
-	// color += uAmbientColor.xyz;
+	color += uAmbientColor.xyz;
 	color *= occ_rough_metal.x;
 	color += self.xyz;
 
 	color = DistanceFog(view, color);
-
 #endif // DEPTH_ONLY != 1
 
 	float opacity = base_opacity.w;
@@ -314,10 +290,6 @@ occ_rough_metal.z = pow(occ_rough_metal.z, uORMPow.z);
 	float gamma = 2.2;
 	color = pow(color, vec3_splat(1. / gamma));
 #endif // FORWARD_PIPELINE_AAA != 1
-
-	color = Greyscale(color, uAmbientColor.x); // Greyscale
-	color = color * (0.5 + uAmbientColor.y) * 2.0; // Hilight
-	color = color * (1.0 - uAmbientColor.z); // Fadeout
 
 	gl_FragColor = vec4(color, opacity);
 #endif // FORWARD_PIPELINE_AAA_PREPASS

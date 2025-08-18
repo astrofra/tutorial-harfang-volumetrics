@@ -1,3 +1,5 @@
+-- Toyota 2JZ-GTE Engine model by Serhii Denysenko (CGTrader: serhiidenysenko8256)
+-- URL : https://www.cgtrader.com/3d-models/vehicle/part/toyota-2jz-gte-engine-2932b715-2f42-4ecd-93ce-df9507c67ce8
 
 hg = require("harfang")
 
@@ -5,9 +7,9 @@ hg.InputInit()
 hg.WindowSystemInit()
 
 res_x, res_y = 1280, 720
-win = hg.RenderInit('Volumetrics Scene', res_x, res_y, hg.RF_VSync | hg.RF_MSAA4X)
+win = hg.RenderInit('AAA Scene', res_x, res_y, hg.RF_VSync | hg.RF_MSAA4X)
 
-hg.AddAssetsFolder("assets_compiled")
+hg.AddAssetsFolder("resources_compiled")
 
 --
 pipeline = hg.CreateForwardPipeline()
@@ -29,23 +31,7 @@ frame = 0
 while not hg.ReadKeyboard():Key(hg.K_Escape) and hg.IsWindowOpen(win) do
 	dt = hg.TickClock()
 
-    -- -- world matrix of the mesh you're drawing (the volumetric cylinder)
-    -- local M      = node:GetTransform():GetWorld()
-    -- local invM   = hg.Inverse(M)  -- InverseFast is fine too
-    -- local camWS  = hg.GetT(camera:GetTransform():GetWorld())
-    -- local camOBJ = invM * camWS   -- point world -> object
-
-    -- bgfx.setUniform(uCamObj,  {camOBJ.x, camOBJ.y, camOBJ.z, 0.0})
-
-    -- -- set your cylinder dimensions in *object space*
-    -- -- if the mesh has radius Robj and height Hobj in OBJ space:
-    -- bgfx.setUniform(uCylDims, {Robj, yminOBJ, ymaxOBJ, edgeWidth})
-
-    -- -- raymarch params
-    -- bgfx.setUniform(uVolCyl,  {1.0, 16.0, 8.0, 0.1})
-    -- bgfx.setUniform(uVolTint, {1.0, 1.0, 1.0, 1.0})
-
-	trs = scene:GetNode('cylinder'):GetTransform()
+	trs = scene:GetNode('engine_master'):GetTransform()
 	trs:SetRot(trs:GetRot() + hg.Vec3(0, hg.Deg(15) * hg.time_to_sec_f(dt), 0))
 
 	scene:Update(dt)

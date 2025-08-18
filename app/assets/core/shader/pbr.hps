@@ -1,0 +1,6 @@
+{
+	"features": ["OptionalBaseColorOpacityMap", "OptionalOcclusionRoughnessMetalnessMap", "OptionalNormalMap", "OptionalSelfMap"],
+	"uniforms": [
+					{"name": "uORMPow", "type": "Color", "value": [1.0, 1.0, 1.0, 1.0]}
+				]
+}

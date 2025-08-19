@@ -7,6 +7,8 @@ uniform vec4 uVolCyl;     // e.g. (1, 16, 8.0, 0.1)
 uniform vec4 uVolTint;    // e.g. (1,1,1, 1)
 // Camera position in THIS mesh object space
 uniform vec4 uCamObj;     // (x,y,z,unused)
+//
+uniform vec4 uCylDims;  // x=R, y=yMin, z=yMax, w=edgeWidth
 
 // Ray / finite cylinder (axis Y), radius R, y in [ymin,ymax]
 bool intersectCylY(vec3 ro, vec3 rd, float R, float ymin, float ymax, out float t0, out float t1)
@@ -60,9 +62,9 @@ void main()
     vec3 rd = normalize(vModelPos - ro);
 
     // Cylinder OBJ: R=1, y in [-1, +1]
-    const float R    = 1.0;
-    const float yMin = -1.0;
-    const float yMax =  1.0;
+    float R     = uCylDims.x;
+    float yMin  = uCylDims.y;
+    float yMax  = uCylDims.z;
 
     float t0, t1;
     if (!intersectCylY(ro, rd, R, yMin, yMax, t0, t1)) { discard; }

@@ -1,96 +1,100 @@
 $input vWorldPos, vModelPos, vNormal, vModelNormal, vTangent, vBinormal, vTexCoord0, vTexCoord1, vLinearShadowCoord0, vLinearShadowCoord1, vLinearShadowCoord2, vLinearShadowCoord3, vSpotShadowCoord, vProjPos, vPrevProjPos
 #include <forward_pipeline.sh>
 
-uniform vec4 uCamObj;   // xyz: camera in object-space
-uniform vec4 uCylDims;  // x=R, y=yMin, z=yMax, w=edgeWidth
-uniform vec4 uVolCyl;   // x=enable(>0), y=steps, z=sigma, w=jitter(0..1)
-uniform vec4 uVolTint;  // rgb=tint, a=intensity
+// (enable, steps, sigma, edgeWidthMeters)
+uniform vec4 uVolCyl;     // e.g. (1, 16, 8.0, 0.1)
+// (rgb, intensity)
+uniform vec4 uVolTint;    // e.g. (1,1,1, 1)
+// Camera position in THIS mesh object space
+uniform vec4 uCamObj;     // (x,y,z,unused)
+
+// Ray / finite cylinder (axis Y), radius R, y in [ymin,ymax]
+bool intersectCylY(vec3 ro, vec3 rd, float R, float ymin, float ymax, out float t0, out float t1)
+{
+    float a = rd.x*rd.x + rd.z*rd.z;
+    float b = 2.0*(ro.x*rd.x + ro.z*rd.z);
+    float c = ro.x*ro.x + ro.z*ro.z - R*R;
+
+    float tc0 = -1e30, tc1 = +1e30;
+    if (a > 1e-8) {
+        float disc = b*b - 4.0*a*c;
+        if (disc < 0.0) return false;
+        float sdisc = sqrt(disc);
+        tc0 = (-b - sdisc) / (2.0*a);
+        tc1 = (-b + sdisc) / (2.0*a);
+        if (tc0 > tc1) { float t = tc0; tc0 = tc1; tc1 = t; }
+    } else {
+        if (c > 0.0) return false;
+    }
+
+    float ty0 = -1e30, ty1 = +1e30;
+    if (abs(rd.y) > 1e-8) {
+        ty0 = (ymin - ro.y) / rd.y;
+        ty1 = (ymax - ro.y) / rd.y;
+        if (ty0 > ty1) { float t = ty0; ty0 = ty1; ty1 = t; }
+    } else {
+        if (ro.y < ymin || ro.y > ymax) return false;
+    }
+
+    float enter = max(tc0, ty0);
+    float exit  = min(tc1, ty1);
+    enter = max(enter, 0.0);
+    if (exit <= enter) return false;
+
+    t0 = enter; t1 = exit;
+    return true;
+}
+
+float radialFade(vec2 xz, float R, float edgeW)
+{
+    float d = length(xz);
+    return 1.0 - smoothstep(R - edgeW, R, d);
+}
 
 void main()
 {
-    // Early disable
-    if (uVolCyl.x <= 0.0) { discard; }
+    if (uVolCyl.x < 0.50) { gl_FragColor = vec4(0,0,0,1); return; }
 
-    // Ray in OBJECT space
+    // Ray in OBJ space: from camera (OBJ) to current fragment (OBJ)
     vec3 ro = uCamObj.xyz;
-    vec3 rd = normalize(vModelPos - ro);    // no drift: both in object-space
+    vec3 rd = normalize(vModelPos - ro);
 
-    // Cylinder dims (axis = +Y in object space)
-    float R     = uCylDims.x;
-    float yMin  = uCylDims.y;
-    float yMax  = uCylDims.z;
-    float edgeW = max(1e-5, uCylDims.w);
+    // Cylinder OBJ: R=1, y in [-1, +1]
+    const float R    = 1.0;
+    const float yMin = -1.0;
+    const float yMax =  1.0;
 
-    // Analytic ray / infinite cylinder (x^2 + z^2 = R^2)
-    float A = rd.x*rd.x + rd.z*rd.z;
-    float B = 2.0*(ro.x*rd.x + ro.z*rd.z);
-    float C = ro.x*ro.x + ro.z*ro.z - R*R;
+    float t0, t1;
+    if (!intersectCylY(ro, rd, R, yMin, yMax, t0, t1)) { discard; }
 
-    if (A < 1e-8) discard;                         // nearly parallel & outside
-    float D = B*B - 4.0*A*C; if (D < 0.0) discard; // no hit
+    int   STEPS = int(clamp(uVolCyl.y, 4.0, 64.0));
+    float sigma = uVolCyl.z;
+    float edgeW = max(uVolCyl.w, 1e-4);
 
-    float s = sqrt(D), inv2A = 0.5 / A;
-    float t0 = (-B - s) * inv2A;
-    float t1 = (-B + s) * inv2A;
-    if (t0 > t1) { float tmp=t0; t0=t1; t1=tmp; }
+    float segLen = t1 - t0;
+    float ds     = segLen / float(STEPS);
 
-    // Clamp by caps: y in [yMin, yMax]
-    float y0 = ro.y + t0*rd.y;
-    float y1 = ro.y + t1*rd.y;
+    // Small jitter to reduce banding
+    float h = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898,78.233))) * 43758.5453);
+    float t = t0 + h * ds;
 
-    if (y0 < yMin) {
-        if (rd.y <= 0.0) discard;
-        float tc = (yMin - ro.y) / rd.y;
-        if (tc > t1) discard;
-        t0 = tc; y0 = yMin;
-    }
-    if (y1 > yMax) {
-        if (rd.y >= 0.0) discard;
-        float tc = (yMax - ro.y) / rd.y;
-        if (tc < t0) discard;
-        t1 = tc; y1 = yMax;
-    }
+    float acc = 0.0;
+    const float EARLY = 0.98;
 
-    if (t1 <= 0.0) discard;     // behind camera
-    t0 = max(t0, 0.0);          // start inside if needed
+    for (int i = 0; i < 64; ++i) {
+        if (i >= STEPS) break;
 
-    // Raymarch
-    int   steps   = max(1, int(uVolCyl.y));
-    float sigma   = uVolCyl.z;               // extinction
-    float jitterK = clamp(uVolCyl.w, 0.0, 1.0);
+        vec3 p = ro + rd * t;                 // OBJ point
+        float dens = radialFade(p.xz, R, edgeW);
+        acc += dens * ds;
 
-    float dt = (t1 - t0) / float(steps);
-    float t  = t0 + dt * jitterK;
+        float aTmp = 1.0 - exp(-sigma * acc);
+        if (aTmp > EARLY) { acc = -log(1.0 - EARLY) / max(sigma,1e-6); break; }
 
-    float Aacc = 0.0; // accumulated alpha (premultiplied scheme)
-
-    // Front-to-back integration with early-out
-    [loop]
-    for (int i = 0; i < 256; ++i) {
-        if (i >= steps) break;
-
-        vec3 p = ro + t*rd;
-
-        // Radial soft edge
-        float r     = length(p.xz);
-        float edgeR = 1.0 - smoothstep(R - edgeW, R, r);
-
-        // Soft caps
-        float cap0  = smoothstep(yMin,       yMin + edgeW, p.y);
-        float cap1  = 1.0 - smoothstep(yMax - edgeW, yMax, p.y);
-
-        float dens  = edgeR * min(cap0, cap1);
-
-        // Beer–Lambert over segment dt
-        float a = 1.0 - exp(-sigma * dens * dt);
-
-        Aacc += (1.0 - Aacc) * a;
-        if ((1.0 - Aacc) < 0.01) break;  // early-out
-
-        t += dt;
+        t += ds;
     }
 
-    // Premultiplied output
-    vec3 tint = uVolTint.rgb * uVolTint.a;   // multiply by intensity
-    gl_FragColor = vec4(tint * Aacc, Aacc);
+    float alpha = clamp(1.0 - exp(-sigma * acc), 0.0, 1.0) * uVolTint.a;
+    vec3  color = uVolTint.rgb * alpha;  // premultiplied
+    gl_FragColor = vec4(color, alpha);
 }

@@ -38,7 +38,9 @@ while not hg.ReadKeyboard():Key(hg.K_Escape) and hg.IsWindowOpen(win) do
     hg.SetMaterialValue(cylinder_material, 'uCamObj', camOBJ)
 
 	trs = scene:GetNode('cylinder'):GetTransform()
-	trs:SetRot(trs:GetRot() + hg.Vec3(hg.Deg(5) * hg.time_to_sec_f(dt), hg.Deg(10) * hg.time_to_sec_f(dt), 0))
+	trs:SetRot(trs:GetRot() + hg.Vec3(hg.Deg(3) * hg.time_to_sec_f(dt), hg.Deg(7) * hg.time_to_sec_f(dt), hg.Deg(15) * hg.time_to_sec_f(dt)))
+	-- trs:SetRot(trs:GetRot() + hg.Vec3(0, hg.Deg(15) * hg.time_to_sec_f(dt), 0))
+	trs:SetPos(hg.Vec3(2.0 * math.sin(hg.Deg(45) * hg.time_to_sec_f(hg.GetClock())) - 1.0, 0, 0))
 
 	scene:Update(dt)
 	hg.SubmitSceneToPipeline(0, scene, hg.IntRect(0, 0, res_x, res_y), true, pipeline, res)

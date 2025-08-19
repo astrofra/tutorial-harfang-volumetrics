@@ -41,7 +41,7 @@
 			"snap_scale_fine": 0.009999999776482582,
 			"snap_translation": 1.0,
 			"snap_translation_fine": 0.10000000149011612,
-			"tool": "move"
+			"tool": "rotation"
 		},
 		"view_plugin": {
 			"show_cameras": true,
